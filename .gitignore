@@ -1,0 +1,8 @@
+logs/
+*.log
+*.json.*
+.env
+__pycache__/
+.venv/
+*.mmdb
+node_modules/
