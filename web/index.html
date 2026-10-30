@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>honeypot-map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#e6edf3;--mut:#8b949e;--acc:#ff4d4d;--ok:#3fb950;--warn:#d29922}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0}
+#status{font-size:12px;color:var(--mut)}
+#status i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warn);margin-right:6px}
+#status.on i{background:var(--ok)}
+.kpis{display:flex;flex-wrap:wrap;gap:8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px;min-width:96px}
+.kpi b{display:block;font-size:20px}
+.kpi span{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+main{display:grid;grid-template-columns:1fr 340px;gap:12px;padding:12px 16px}
+#map{height:460px;border-radius:8px;border:1px solid var(--line);background:#0b0f14}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.panel h2{font-size:12px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+#feed{height:460px;overflow:hidden;font:12px/1.5 ui-monospace,Consolas,monospace}
+#feed div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid #21262d;padding:1px 0}
+#feed .login_success{color:var(--warn)} #feed .download{color:var(--acc)} #feed .command{color:#79c0ff} #feed .login_failed{color:var(--mut)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;padding:0 16px 16px}
+.row{position:relative;display:flex;justify-content:space-between;gap:8px;padding:2px 6px;margin-bottom:3px;font-size:12px;overflow:hidden}
+.row u{position:absolute;left:0;top:0;bottom:0;background:rgba(255,77,77,.18);z-index:0}
+.row span{position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row em{position:relative;z-index:1;font-style:normal;color:var(--mut)}
+canvas{max-height:200px}
+footer{padding:0 16px 16px;color:var(--mut);font-size:11px}
+@media(max-width:900px){main{grid-template-columns:1fr}#map,#feed{height:340px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🍯 honeypot-map <small id="status"><i></i>connexion…</small></h1>
+  <div class="kpis">
+    <div class="kpi"><b id="k-conn">–</b><span>connexions</span></div>
+    <div class="kpi"><b id="k-ips">–</b><span>IP uniques</span></div>
+    <div class="kpi"><b id="k-cty">–</b><span>pays</span></div>
+    <div class="kpi"><b id="k-login">–</b><span>essais de login</span></div>
+    <div class="kpi"><b id="k-cmd">–</b><span>commandes</span></div>
+  </div>
+</header>
+<main>
+  <div id="map"></div>
+  <div class="panel"><h2>Flux en direct</h2><div id="feed"></div></div>
+</main>
+<div class="grid">
+  <div class="panel"><h2>Top pays</h2><div id="countries"></div></div>
+  <div class="panel"><h2>Mots de passe testés</h2><div id="passwords"></div></div>
+  <div class="panel"><h2>Commandes tapées</h2><div id="commands"></div></div>
+  <div class="panel"><h2>Connexions par heure</h2><canvas id="timeline"></canvas></div>
+</div>
+<footer>Adresses IP masquées. Données du honeypot SSH (Cowrie). Géolocalisation : GeoLite2 de MaxMind (https://www.maxmind.com). Carte : © OpenStreetMap © CARTO.</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// Position de ton honeypot (le VPS) : modifie ces coordonnées [latitude, longitude].
+const HOME = [48.8566, 2.3522];
+
+const $ = id => document.getElementById(id);
+const j = u => fetch(u).then(r => r.json());
+const fmt = n => Number(n || 0).toLocaleString('fr-FR');
+
+// ---- Carte ----
+const map = L.map('map', {worldCopyJump: true, zoomControl: true}).setView([25, 10], 2);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  {attribution: '© OpenStreetMap © CARTO', maxZoom: 6, minZoom: 2}).addTo(map);
+L.circleMarker(HOME, {radius: 7, color: '#3fb950', fillColor: '#3fb950', fillOpacity: .9}).addTo(map)
+  .bindTooltip('Honeypot');
+
+function curve(a, b) {
+  const cx = (a[0] + b[0]) / 2 - (b[1] - a[1]) * .25, cy = (a[1] + b[1]) / 2 + (b[0] - a[0]) * .25, pts = [];
+  for (let i = 0; i <= 30; i++) {
+    const t = i / 30, u = 1 - t;
+    pts.push([u*u*a[0] + 2*u*t*cx + t*t*b[0], u*u*a[1] + 2*u*t*cy + t*t*b[1]]);
+  }
+  return pts;
+}
+
+function attackArc(lat, lon) {
+  const pts = curve([lat, lon], HOME);
+  const dot = L.circleMarker([lat, lon], {radius: 4, color: '#ff4d4d', fillColor: '#ff4d4d', fillOpacity: .9}).addTo(map);
+  const line = L.polyline([], {color: '#ff4d4d', weight: 1.5, opacity: .8}).addTo(map);
+  const t0 = performance.now();
+  (function step(now) {
+    const p = Math.min((now - t0) / 800, 1);
+    line.setLatLngs(pts.slice(0, Math.ceil(p * pts.length) + 1));
+    if (p < 1) return requestAnimationFrame(step);
+    const f0 = performance.now();
+    (function fade(n) {
+      const q = Math.min((n - f0) / 1500, 1);
+      line.setStyle({opacity: .8 * (1 - q)}); dot.setStyle({fillOpacity: .9 * (1 - q), opacity: 1 - q});
+      if (q < 1) return requestAnimationFrame(fade);
+      map.removeLayer(line); map.removeLayer(dot);
+    })(f0);
+  })(t0);
+}
+
+// ---- Flux en direct (textContent uniquement : les données viennent d'attaquants) ----
+function feedLine(e) {
+  const where = [e.city, e.country_code].filter(Boolean).join(', ');
+  const txt = {
+    connect: `connexion  ${e.ip}${where ? ' (' + where + ')' : ''}`,
+    login_failed: `essai  ${e.username} / ${e.password}`,
+    login_success: `LOGIN OK  ${e.username} / ${e.password}`,
+    command: `$ ${e.command}`,
+    download: `téléchargement  ${e.url}`,
+  }[e.type] || e.type;
+  const d = document.createElement('div');
+  d.className = e.type;
+  d.textContent = `${(e.ts || '').slice(11, 19)}  ${txt}`;
+  d.title = d.textContent;
+  const feed = $('feed');
+  feed.prepend(d);
+  while (feed.children.length > 40) feed.lastChild.remove();
+}
+
+function connectWS() {
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/attacks');
+  ws.onopen = () => { $('status').className = 'on'; $('status').lastChild.textContent = 'en direct'; };
+  ws.onclose = () => { $('status').className = ''; $('status').lastChild.textContent = 'reconnexion…'; setTimeout(connectWS, 3000); };
+  ws.onmessage = m => {
+    const e = JSON.parse(m.data);
+    feedLine(e);
+    if (e.type === 'connect' && e.lat != null) attackArc(e.lat, e.lon);
+  };
+}
+
+// ---- Statistiques ----
+function bars(id, rows, label, count) {
+  const el = $(id), max = Math.max(1, ...rows.map(r => r[count]));
+  el.replaceChildren(...rows.map(r => {
+    const row = document.createElement('div'), bar = document.createElement('u');
+    const a = document.createElement('span'), b = document.createElement('em');
+    row.className = 'row'; bar.style.width = (100 * r[count] / max) + '%';
+    a.textContent = r[label]; b.textContent = fmt(r[count]); a.title = r[label];
+    row.append(bar, a, b); return row;
+  }));
+}
+
+let chart;
+function drawTimeline(rows) {
+  const labels = rows.map(r => r.hour.slice(5, 13).replace('T', ' ') + 'h'), data = rows.map(r => r.n);
+  if (chart) { chart.data.labels = labels; chart.data.datasets[0].data = data; return chart.update(); }
+  chart = new Chart($('timeline'), {
+    type: 'line',
+    data: {labels, datasets: [{data, borderColor: '#ff4d4d', backgroundColor: 'rgba(255,77,77,.15)', fill: true, pointRadius: 0, tension: .3}]},
+    options: {plugins: {legend: {display: false}}, scales: {x: {ticks: {color: '#8b949e', maxTicksLimit: 6}, grid: {display: false}}, y: {ticks: {color: '#8b949e'}, grid: {color: '#21262d'}}}}
+  });
+}
+
+async function refresh() {
+  try {
+    const [s, c, p, cm, t] = await Promise.all([j('/api/summary'), j('/api/countries'), j('/api/passwords'), j('/api/commands'), j('/api/timeline')]);
+    $('k-conn').textContent = fmt(s.connections); $('k-ips').textContent = fmt(s.ips); $('k-cty').textContent = fmt(s.countries);
+    $('k-login').textContent = fmt(s.login_failed + s.login_success); $('k-cmd').textContent = fmt(s.commands);
+    bars('countries', c, 'country', 'attacks'); bars('passwords', p, 'value', 'n'); bars('commands', cm, 'value', 'n');
+    drawTimeline(t);
+  } catch (err) { console.error(err); }
+}
+
+refresh(); setInterval(refresh, 10000); connectWS();
+</script>
+</body>
+</html>
