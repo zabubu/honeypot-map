@@ -1,0 +1,11 @@
+.git
+data
+logs
+geoip
+samples
+tools
+docs
+__pycache__
+*.mmdb
+*.db
+.venv

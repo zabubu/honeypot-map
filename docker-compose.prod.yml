@@ -1,0 +1,85 @@
+# Production : à lancer sur le VPS.
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Accès public HTTPS (optionnel, voir docs/DEPLOY.md) :
+#   docker compose -f docker-compose.prod.yml --profile public up -d
+
+name: honeypot-map
+
+x-app: &app
+  build: .
+  image: honeypot-map-app:latest
+  restart: unless-stopped
+
+services:
+  # Le honeypot : le port 22 du serveur est redirigé vers Cowrie.
+  cowrie:
+    image: cowrie/cowrie:latest   # à figer sur un tag précis une fois testé
+    restart: unless-stopped
+    ports:
+      - "22:2222"
+    volumes:
+      - cowrie-logs:/cowrie/cowrie-git/var/log/cowrie
+    networks: [honeypot]
+
+  # Lit cowrie.json en continu et alimente la base SQLite.
+  ingester:
+    <<: *app
+    depends_on: [cowrie]
+    network_mode: none   # n'a besoin d'aucun accès réseau
+    command: >
+      sh -c "until [ -f /logs/cowrie.json ]; do sleep 2; done;
+      exec python ingester/ingest.py /logs/cowrie.json --db /data/honeypot.db --follow --no-stats"
+    volumes:
+      - cowrie-logs:/logs:ro
+      - data:/data
+
+  # Localise les nouvelles IP toutes les 60 secondes (bases .mmdb dans ./geoip).
+  enrich:
+    <<: *app
+    depends_on: [ingester]
+    network_mode: none
+    command: >
+      sh -c "while true; do
+      python ingester/geoip_enrich.py --db /data/honeypot.db --city /geoip/GeoLite2-City.mmdb --asn /geoip/GeoLite2-ASN.mmdb > /dev/null || true;
+      sleep 60; done"
+    volumes:
+      - data:/data
+      - ./geoip:/geoip:ro
+
+  # API + dashboard. Accessible seulement depuis le serveur (tunnel SSH)
+  # ou via le proxy HTTPS du profil "public".
+  api:
+    <<: *app
+    depends_on: [ingester, enrich]
+    environment:
+      DB_PATH: /data/honeypot.db
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - data:/data
+    networks: [web]
+
+  # Proxy HTTPS avec authentification (profil "public", désactivé par défaut).
+  caddy:
+    image: caddy:2
+    profiles: [public]
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [web]
+
+volumes:
+  cowrie-logs:
+  data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  honeypot:
+  web:

@@ -1,0 +1,11 @@
+# Copie ce fichier en deploy/Caddyfile (ignoré par Git) et adapte-le.
+# Remplace le nom de domaine par le tien : il doit pointer vers l'IP du VPS
+# (un sous-domaine gratuit DuckDNS convient).
+dashboard.example.com {
+	basic_auth {
+		# Génère le hash avec :  docker run --rm caddy caddy hash-password
+		admin PASTE_HASH_HERE
+	}
+	encode gzip
+	reverse_proxy api:8000
+}
