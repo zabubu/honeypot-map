@@ -153,7 +153,7 @@ function drawTimeline(rows) {
   chart = new Chart($('timeline'), {
     type: 'line',
     data: {labels, datasets: [{data, borderColor: '#ff4d4d', backgroundColor: 'rgba(255,77,77,.15)', fill: true, pointRadius: 0, tension: .3}]},
-    options: {plugins: {legend: {display: false}}, scales: {x: {ticks: {color: '#8b949e', maxTicksLimit: 6}, grid: {display: false}}, y: {ticks: {color: '#8b949e'}, grid: {color: '#21262d'}}}}
+    options: {plugins: {legend: {display: false}}, scales: {x: {ticks: {color: '#8b949e', maxTicksLimit: 6}, grid: {display: false}}, y: {beginAtZero: true, ticks: {color: '#8b949e', precision: 0}, grid: {color: '#21262d'}}}}
   });
 }
 
@@ -167,6 +167,7 @@ async function refresh() {
   } catch (err) { console.error(err); }
 }
 
+j('/api/attacks/recent?limit=25').then(rows => rows.reverse().forEach(feedLine)).catch(console.error);
 refresh(); setInterval(refresh, 10000); connectWS();
 </script>
 </body>
