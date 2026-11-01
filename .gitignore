@@ -10,3 +10,4 @@ data/
 *.db
 geoip/
 deploy/Caddyfile
+.pytest_cache/
