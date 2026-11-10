@@ -259,11 +259,26 @@ def section_clients(conn):
 def section_top_ips(conn):
     rows = conn.execute(
         """SELECT src_ip ip, COUNT(DISTINCT session) s, COUNT(*) n,
-                  COUNT(DISTINCT substr(ts,1,10)) d FROM ev WHERE src_ip IS NOT NULL
-           GROUP BY src_ip ORDER BY n DESC LIMIT 10""").fetchall()
+                  COUNT(DISTINCT substr(ts,1,10)) d, MIN(ts) first, MAX(ts) last
+           FROM ev WHERE src_ip IS NOT NULL
+           GROUP BY src_ip ORDER BY n DESC, first LIMIT 10""").fetchall()
     out = ["## 8. Sources les plus actives", "", "Adresses masquées (dernier octet).", ""]
-    return out + table(["IP", "Sessions", "Événements", "Jours actifs"],
-                       [(code(mask_ip(r["ip"])), r["s"], r["n"], r["d"]) for r in rows])
+    out += table(["IP", "Sessions", "Événements", "Jours actifs", "Première activité (UTC)", "Dernière activité (UTC)"],
+                 [(code(mask_ip(r["ip"])), r["s"], r["n"], r["d"], _minute(r["first"]), _minute(r["last"]))
+                  for r in rows])
+    masked = [mask_ip(r["ip"]) for r in rows]
+    repeated = sorted({m for m in masked if masked.count(m) > 1})
+    if repeated:
+        out += ["Plusieurs lignes portant la même adresse masquée ("
+                + ", ".join(code(m) for m in repeated)
+                + ") correspondent à des adresses distinctes d'un même réseau, "
+                  "différenciées ici par leur période d'activité.", ""]
+    return out
+
+
+def _minute(ts):
+    """2026-10-31T14:46:38.963384Z -> 2026-10-31 14:46"""
+    return ts[:16].replace("T", " ") if ts else "–"
 
 
 def build(conn, excluded):

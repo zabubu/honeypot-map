@@ -52,6 +52,26 @@ def test_everything_excluded(db_path):
     assert "aucun événement" in text
 
 
+def test_top_ips_shows_activity_window(db_path):
+    text = _build(db_path)
+    assert "Première activité (UTC)" in text
+    assert "| 2026-10-30 10:00 | 2026-10-30 10:00 |" in text
+    assert "même adresse masquée" not in text  # A et B ont des masques différents
+
+
+def test_top_ips_flags_identical_masks(tmp_path, cowrie_log):
+    import ingest
+    path = tmp_path / "twins.db"
+    conn = ingest.connect(path)
+    ingest.ingest_file(conn, cowrie_log)
+    conn.execute("INSERT INTO events (ts, eventid, session, src_ip, line_hash) "
+                 "VALUES ('2026-10-31T12:00:00Z', 'cowrie.session.connect', 'sC', '203.0.113.99', 'x')")
+    conn.commit()
+    conn.close()
+    text = _build(path)
+    assert "même adresse masquée (`203.0.113.x`)" in text
+
+
 def test_invalid_ip_is_rejected(db_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["report.py", "--db", str(db_path), "--exclude-ip", "pas-une-ip"])
     with pytest.raises(SystemExit):
