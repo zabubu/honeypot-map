@@ -111,7 +111,25 @@ Le rapport est écrit dans `reports/`. Les adresses IP y sont masquées, les URL
 
 ## Résultats
 
-> À compléter après la période de collecte : lien vers le rapport dans `reports/`, avec les chiffres clés (nombre de connexions, pays dominants, mots de passe les plus testés, familles de commandes).
+Premiers résultats, sur environ **21 heures** de collecte (31 octobre 14h29 → 1er novembre 11h42 UTC). Rapport complet : [reports/report-2026-11-01.md](reports/report-2026-11-01.md).
+
+| Indicateur | Valeur |
+|---|---|
+| Connexions SSH | 6 845 (≈ 7 700 par jour) |
+| Adresses IP uniques | 97 |
+| Pays d'origine (top 3) | Bulgarie (55 %), Philippines (28 %), Corée du Sud (12 %) |
+| Mots de passe distincts essayés | 2 760 |
+| Commandes enregistrées | 7 470 |
+| Fichiers téléchargés | 0 |
+
+**Ce qu'on observe :**
+
+- **Peu de sources, beaucoup de bruit.** Trois pays et une poignée d'hébergeurs (Banatsync, EWS DS Networks, DAOU Technology) génèrent plus de 95 % des connexions : quelques machines automatisées très actives, pas une foule d'attaquants.
+- **Des identifiants sans surprise.** `root` (3 161 essais) et `ubuntu` (956) dominent ; les mots de passe les plus testés sont `123456`, `123`, `1234`, `12345678`, puis `root` et `password`.
+- **Des bots, pas des humains.** 97 % des sessions annoncent le client `SSH-2.0-Go` (bibliothèque SSH du langage Go). Une fois « connectés », ils se contentent presque tous d'une commande de reconnaissance (`uname -s -v -n -r -m`, 54 % des sessions) ou d'un simple test (`echo xsec`) pour vérifier qu'ils ont bien un shell.
+- **Quelques tentatives d'installation.** Environ 5 % des sessions tentent de rendre exécutable un fichier (`chmod +x /root/.16`), parfois via `sudo` avec le mot de passe deviné, mais aucun téléchargement n'a abouti pendant cette période.
+
+Ces chiffres portent sur moins d'une journée et sur un seul serveur : ils donnent un aperçu, pas une tendance. Le rapport sera mis à jour après une collecte plus longue.
 
 ## Limites
 
